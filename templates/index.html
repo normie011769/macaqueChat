@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>MacaqueChat</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="icon" href="{{ url_for('static', filename='ctm.png') }}">
+    
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Nunito:wght@400;700;800&display=swap');
+
+    /* 定義全域色彩變數 */
+    :root {
+        --bg-color: #F7F5F0;        /* 燕麥奶背景 */
+        --card-bg: #FFFFFF;         /* 純白卡片 */
+        --primary: #7EAA92;         /* 抹茶綠 */
+        --primary-hover: #638A75;   /* 深抹茶 */
+        --text-main: #4A4A4A;       /* 柔和深灰  */
+        --text-light: #9DA39F;      /* 淺灰綠 */
+        --border-color: #EAE6D9;    /* 奶油邊框 */
+        --accent: #fdbbb1;          /* 蜜桃粉*/
+    }
+
+    body { font-family: 'Nunito','M PLUS Rounded 1c', sans-serif; display: flex; flex-direction: column; height: 100vh; margin: 0; background: var(--bg-color); color: var(--text-main); overflow: hidden; }
+    .user-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary); padding: 2px; }
+    
+    /* 1. 頂部導覽列 */
+    #top-nav { display: flex; align-items: center; background: var(--card-bg); padding: 12px 25px; gap: 15px; box-shadow: 0 4px 20px rgba(126, 170, 146, 0.1); z-index: 10; border-bottom: 2px solid var(--border-color); }
+    .nav-title { font-size: 22px; font-weight: 800; color: var(--primary); margin-right: 20px; letter-spacing: 1px; }
+    
+    .server-btn { height: 44px; padding: 0 20px; border-radius: 22px; background: var(--bg-color); color: var(--text-main); border: 2px solid transparent; cursor: pointer; font-weight: 700; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); font-size: 15px; }
+    .server-btn:hover { background: #f0ece1; transform: translateY(-3px); }
+    .server-btn.active { background: var(--primary); color: white; box-shadow: 0 6px 15px rgba(126, 170, 146, 0.4); }
+    
+    .add-btn { background: transparent; color: var(--primary); border: 2px dashed var(--primary); font-size: 16px; }
+    .add-btn:hover { background: rgba(126, 170, 146, 0.1); transform: rotate(2deg) scale(1.05); } 
+
+    /* 主要內容區 */
+   #main-content { display: flex; flex: 1; padding: 25px; gap: 25px; background: var(--bg-color); min-height: 0; } 
+
+    /* 2. 頻道欄 & 在線成員欄  */
+    #channel-sidebar, #user-sidebar { background: var(--card-bg); border-radius: 24px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.03); border: 1px solid var(--border-color); min-height: 0; }
+    #channel-sidebar { width: 350px; }
+    #user-sidebar { width: 190px; min-height: 0; }
+    
+    #current-server-name, #user-sidebar-title { margin-top: 0; padding-bottom: 15px; border-bottom: 2px dashed var(--border-color); color: var(--text-main); font-weight: 800; font-size: 16px; }
+    
+    .channel-btn { display: block; width: 100%; text-align: left; background: none; color: var(--text-light); margin-bottom: 8px; padding: 12px 15px; border: none; cursor: pointer; border-radius: 14px; font-size: 16px; font-weight: 700; transition: 0.2s; }
+    .channel-btn:hover { background: var(--bg-color); color: var(--text-main); transform: translateX(5px); } /* 滑過時向右微縮 */
+    .channel-btn.active { background: rgba(126, 170, 146, 0.15); color: var(--primary); }
+
+    /* 3. 對話視窗卡片 */
+    #chat-window { flex: 1; background: var(--card-bg); border-radius: 24px; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.03); border: 1px solid var(--border-color); overflow: hidden; min-height: 0;}
+    #messages { flex: 1; padding: 25px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; font-size: 16px; line-height: 1.6; color: var(--text-main); }
+    
+    /* 聊天室內的在線名單 */
+    #online-users-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin-top: 15px; }
+    .online-user { display: flex; align-items: center; gap: 10px; color: var(--text-main); font-weight: 700; font-size: 15px; background: var(--bg-color); padding: 8px 12px; border-radius: 16px; }
+    .online-dot { width: 12px; height: 12px; background: #68D391; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 2px rgba(104, 211, 145, 0.2); }
+
+    /* 4. 圓角輸入區與果凍按鈕 */
+    #input-area { padding: 20px; background: var(--bg-color); display: flex; gap: 12px; align-items: center; border-radius: 0 0 24px 24px; }
+    input { padding: 10px 20px; border: 2px solid var(--border-color); border-radius: 20px; font-size: 15px; outline: none; background: var(--card-bg); color: var(--text-main); font-weight: 700; transition: 0.2s; font-family: 'Nunito', 'M PLUS Rounded 1c',sans-serif; }
+    input::placeholder { color: #C4C4C4; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(126, 170, 146, 0.1); }
+    #message-input { flex: 1; }
+    
+    button { padding: 12px 24px; border: none; border-radius: 20px; font-size: 16px; cursor: pointer; font-weight: 800; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-family: 'Nunito', 'M PLUS Rounded 1c',sans-serif; }
+    #send-btn { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(126, 170, 146, 0.3); }
+    #send-btn:hover:not(:disabled) { transform: scale(1.05); background: var(--primary-hover); }
+    #send-btn:disabled { background: #D1D5DB; box-shadow: none; cursor: not-allowed; }
+    
+    #summary-btn { background: var(--accent) !important; color: white !important; box-shadow: 0 4px 10px rgba(255, 178, 166, 0.4); flex-shrink: 0;}
+    #summary-btn:hover:not(:disabled) { transform: scale(1.05); background: var(--primary-hover); }
+
+    .system { color: #8d5c13; font-size: 0.9em; padding: 10px 16px; background: #FEFCBF; border-radius: 12px; display: inline-block; margin-bottom: 5px; font-weight: 700; border: 1px dashed #F6E05E; }
+    .username { font-weight: 800; color: var(--primary); margin-right: 8px; }
+
+    
+    /* 1. 遮罩背景  */
+    .custom-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+    
+    /* 2. 視窗本體卡片 */
+    .modal-content { background: var(--card-bg); padding: 30px; border-radius: 24px; width: 320px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); border: 2px solid var(--border-color); }
+    .modal-content h3 { margin-top: 0; color: var(--text-main); font-size: 20px; font-weight: 800; text-align: center; }
+    
+    /* 3. 輸入框 */
+    .modal-content input { 
+    width: 100%; box-sizing: border-box; margin: 15px 0 25px 0; padding: 14px; 
+    background: var(--bg-color); color: var(--text-main); 
+    border: 2px solid var(--border-color); border-radius: 16px; 
+    font-family: 'Nunito', 'M PLUS Rounded 1c', sans-serif; 
+    font-weight: 700; outline: none; transition: 0.2s; 
+    font-size: 15px;
+}
+    .modal-content input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(126, 170, 146, 0.1); }
+    
+    /* 4. 按鈕區塊 */
+    .modal-actions { display: flex; justify-content: center; gap: 15px; }
+    .modal-btn { padding: 10px 20px; font-size: 15px; border: none; border-radius: 14px; cursor: pointer; font-weight: 800; font-family: 'Nunito','M PLUS Rounded 1c', sans-serif; transition: 0.2s; width: 100%;}
+    .modal-btn.cancel { background: #EDF2F7; color: var(--text-main); }
+    .modal-btn.cancel:hover { background: #E2E8F0; transform: translateY(-2px); }
+    .modal-btn.confirm { background: var(--primary); color: white; }
+    .modal-btn.confirm:hover { background: var(--primary-hover); transform: translateY(-2px); }
+</style>
+</head>
+<body>
+    <div id="top-nav">
+        <img src="./static/han.png" alt="Logo" style="height: 50px; width: auto; border-radius: 4px;">
+        <div class="nav-title">MacaqueChat</div>
+        <div id="server-list" style="display: flex; gap: 10px; align-items: center;">
+            {% for server_id, server_info in servers.items() %}
+                <button class="server-btn" id="btn-{{ server_id }}" onclick="switchServer('{{ server_id }}')">
+                    {{ server_info.name[:4] }} 
+                </button>
+            {% endfor %}
+            <button class="server-btn add-btn" onclick="openCreateServerPrompt()">+ 新增群組</button>
+        </div>
+    </div>
+
+    <div id="main-content">
+<div id="channel-sidebar">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h4 id="current-server-name" style="margin: 0; border: none;">請選擇伺服器</h4>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <i class="fa-solid fa-plus" id="add-channel-icon" style="cursor: pointer; color: var(--primary); display: none;" onclick="openCreateChannelPrompt()" title="新增頻道"></i>
+                    <i class="fa-solid fa-gear" id="edit-server-icon" style="cursor: pointer; color: var(--text-light); display: none;" onclick="openRenameServerModal()" title="修改群組"></i>
+                </div>
+            </div>
+            
+            <div id="channel-list-container" style="margin-top: 15px; flex: 1; overflow-y: auto;"></div>
+
+                <button id="game-btn" onclick="toggleGame()" style="background: var(--primary); color: white;" title="開啟貪食蛇">
+                    <i class="fa-solid fa-gamepad"></i>
+                </button>
+
+            <div id="game-container" style="display: none; background: var(--bg-color); padding: 15px; text-align: center; border-radius: 16px; margin-top: 10px; border: 2px dashed var(--border-color);">
+                <div style="font-weight: 800; color: var(--primary); margin-bottom: 5px; font-size: 15px;">🐍🐍🐍</div>
+                <div style="font-size: 11px; color: var(--text-light); margin-bottom: 10px;">(聊天室輸入W A S D控制)</div>
+                <canvas id="game-canvas" width="600" height="300" style="width: 100%; height: auto; background: #FFFFFF; border-radius: 8px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);"></canvas>
+            </div>
+            </div>
+            
+        <div id="chat-window">
+            <div id="messages">
+                <div class="system">系統：請先輸入暱稱，接著點擊左側「伺服器」，再選擇「頻道」開始聊天。</div>
+            </div>
+            <div id="input-area">
+                <input type="text" id="username" placeholder="你的暱稱..." style="max-width: 120px;">
+                <input type="text" id="message-input" placeholder="選擇頻道後才可發送訊息..." style="flex: 1; min-width: 50px; border-radius: 20px; border: 1px solid var(--border-color); padding: 10px 15px; outline: none;">
+                <label for="photo-upload" style="cursor: pointer; width: 44px; height: 44px; flex-wrap: wrap; background: var(--bg-color); border: 2px solid var(--border-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--primary); font-size: 18px; transition: 0.2s; margin: 0; flex-shrink: 0;" onmouseover="this.style.background='var(--primary)'; this.style.color='white'" onmouseout="this.style.background='var(--bg-color)'; this.style.color='var(--primary)'" title="傳送照片">
+                    <i class="fa-solid fa-plus"></i>
+                </label>
+                <input type="file" id="photo-upload" accept="image/*" style="display:none;" onchange="uploadPhoto(this)">
+                <button id="send-btn" onclick="sendMessage()" disabled>發送</button>
+                <button id="summary-btn" onclick="requestAiSummary()" style="background: #e4b210; color: black; font-weight: bold;">AI總結</button>
+            </div>
+        </div>
+        
+        <div id="user-sidebar">
+            <h4 id="user-sidebar-title">在線成員 (0)</h4>
+            <div id="online-users-list">
+                <div style="color: #666; font-size: 12px; margin-top: 10px;">尚未進入頻道</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="universal-modal" class="custom-modal">
+        <div class="modal-content">
+            <h3 id="modal-title">編輯項目</h3>
+            <input type="text" id="modal-input" placeholder="請輸入新名稱...">
+            <div class="modal-actions">
+                <button class="modal-btn cancel" onclick="closeModal()">取消</button>
+                <button class="modal-btn confirm" id="modal-confirm-btn">確認變更</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentServerId = "";
+        let currentChannelName = "";
+        let currentRoomId = "";
+        let username = "";
+        let isGameMode = false;
+        
+        const socket = io();
+        
+        const serversData = {
+            {% for server_id, server_info in servers.items() %}
+                "{{ server_id }}": {
+                    "name": "{{ server_info.name }}",
+                    "channels": {{ server_info.channels|tojson }}
+                },
+            {% endfor %}
+        };
+
+
+        function switchServer(serverId) {
+            currentServerId = serverId;
+            
+            document.querySelectorAll('.server-btn').forEach(btn => btn.classList.remove('active'));
+            if(document.getElementById(`btn-${serverId}`)) {
+                document.getElementById(`btn-${serverId}`).classList.add('active');
+            }
+
+            document.getElementById('current-server-name').innerText = serversData[serverId].name;
+            document.getElementById('edit-server-icon').style.display = 'block';
+            document.getElementById('current-server-name').innerText = serversData[serverId].name;
+            document.getElementById('edit-server-icon').style.display = 'block';
+            document.getElementById('add-channel-icon').style.display = 'block'; // 顯示加號
+
+            const container = document.getElementById('channel-list-container');
+            container.innerHTML = "";
+            
+            serversData[serverId].channels.forEach(channel => {
+                container.innerHTML += `
+                    <div class="channel-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <button class="channel-btn" id="ch-${channel}" onclick="switchChannel('${channel}')" style="flex: 1; margin-bottom: 0;"># ${channel}</button>
+                        <div class="channel-ops" style="display: flex; gap: 8px; padding-right: 5px;">
+                            <i class="fa-solid fa-pen" style="cursor:pointer; color: var(--text-light); font-size:12px;" onclick="openRenameChannelModal('${channel}')"></i>
+                            <i class="fa-solid fa-trash" style="cursor:pointer; color: #FFA39E; font-size:12px;" onclick="triggerDeleteChannel('${channel}')"></i>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function switchChannel(channelName) {
+            if (currentChannelName === channelName) return; 
+
+            const nameInput = document.getElementById('username').value.trim();
+            if (!nameInput) {
+                alert("請先在右下角輸入暱稱！");
+                return;
+            }
+            username = nameInput;
+            document.getElementById('username').disabled = true; 
+
+            document.getElementById('message-input').disabled = false;
+            document.getElementById('send-btn').disabled = false;
+
+            document.querySelectorAll('.channel-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`ch-${channelName}`).classList.add('active');
+
+            socket.emit('join_channel', {
+                username: username,
+                server: currentServerId,
+                channel: channelName,
+                old_room: currentRoomId
+            });
+
+            currentChannelName = channelName;
+            currentRoomId = `${currentServerId}:${channelName}`; 
+
+            document.getElementById('messages').innerHTML += `<div class="system">你已進入【${serversData[currentServerId].name}】的 # ${currentChannelName} 頻道</div>`;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            socket.emit('send_chat', {
+                username: username,
+                message: message,
+                server: currentServerId,
+                channel: currentChannelName
+            });
+            input.value = "";
+        }
+
+        function requestAiSummary() {
+            if (!currentServerId || !currentChannelName) {
+                alert("請先進入頻道！");
+                return;
+            }
+            socket.emit('request_summary', {
+                server: currentServerId,
+                channel: currentChannelName
+            });
+        }
+
+        function openCreateServerPrompt() {
+            const name = prompt("請輸入新伺服器的名稱：");
+            if (name && name.trim() !== "") {
+                socket.emit('create_server', { name: name.trim() });
+            }
+        }
+
+
+        // 觸發：跳出新增頻道的提示框
+        function openCreateChannelPrompt() {
+            if (!currentServerId) return;
+            const name = prompt("請輸入新頻道的名稱：");
+            if (name && name.trim() !== "") {
+                socket.emit('create_channel', { 
+                    server_id: currentServerId, 
+                    channel_name: name.trim() 
+                });
+            }
+        }
+
+        // 監聽：後端廣播有新頻道建立
+        socket.on('channel_created', (data) => {
+            // 1. 同步更新暫存資料
+            if (serversData[data.server_id]) {
+                serversData[data.server_id].channels.push(data.channel_name);
+            }
+            
+            // 2. 如果使用者目前剛好正在看這個群組，就重新繪製頻道列表，讓新頻道出來
+            if (currentServerId === data.server_id) {
+                switchServer(currentServerId); 
+            }
+        });
+
+
+        // --- Modal 彈出視窗與 CRUD 控制邏輯 ---
+        function closeModal() {
+            document.getElementById('universal-modal').style.display = 'none';
+        }
+
+        function openRenameServerModal() {
+            if (!currentServerId) return;
+            document.getElementById('modal-title').innerText = "修改群組名稱";
+            document.getElementById('modal-input').value = serversData[currentServerId].name;
+            document.getElementById('universal-modal').style.display = 'flex';
+            
+            document.getElementById('modal-confirm-btn').onclick = function() {
+                const newName = document.getElementById('modal-input').value.trim();
+                if(newName) {
+                    socket.emit('rename_server', { server_id: currentServerId, new_name: newName });
+                    closeModal();
+                }
+            };
+        }
+
+        function openRenameChannelModal(oldChannel) {
+            document.getElementById('modal-title').innerText = `修改頻道 #${oldChannel} 的名稱`;
+            document.getElementById('modal-input').value = oldChannel;
+            document.getElementById('universal-modal').style.display = 'flex';
+            
+            document.getElementById('modal-confirm-btn').onclick = function() {
+                const newName = document.getElementById('modal-input').value.trim();
+                if(newName) {
+                    socket.emit('rename_channel', { server_id: currentServerId, old_channel: oldChannel, new_channel: newName });
+                    closeModal();
+                }
+            };
+        }
+
+        function triggerDeleteChannel(channelName) {
+            if (confirm(`確定要永久刪除 #${channelName} 頻道嗎？`)) {
+                socket.emit('delete_channel', { server_id: currentServerId, channel: channelName });
+            }
+        }
+
+        // --- Socket.io 事件監聽 ---
+        socket.on('new_server_created', (data) => {
+            serversData[data.server_id] = data.server_info;
+            const sidebar = document.getElementById('server-list');
+            const newBtn = document.createElement('button');
+            newBtn.className = 'server-btn';
+            newBtn.id = `btn-${data.server_id}`;
+            newBtn.innerText = data.server_info.name.substring(0, 4); 
+            newBtn.onclick = () => switchServer(data.server_id);
+            const addBtn = document.querySelector('.add-btn');
+            sidebar.insertBefore(newBtn, addBtn);
+        });
+
+        
+        socket.on('new_chat', (data) => {
+            const msgDiv = document.getElementById('messages');
+            let chatContent = "";
+            
+            // 1. 檢查訊息是否存在，且開頭是否為 base64 圖片碼
+            if (data.message && data.message.startsWith('data:image/')) {
+                // 將亂碼包裹進 <img> 標籤中，並限制大小
+                chatContent = `<img src="${data.message}" style="max-width: 250px; max-height: 250px; border-radius: 16px; margin-top: 8px; display: block; border: 2px solid var(--border-color); box-shadow: 0 4px 15px rgba(0,0,0,0.03);">`;
+            } else {
+                // 一般文字訊息
+                chatContent = `<span>${data.message}</span>`;
+            }
+            
+            // 2. 渲染到對話視窗
+            msgDiv.innerHTML += `<div><span class="username">${data.username}:</span>${chatContent}</div>`;
+            
+            // 3. 自動滾動到最下方
+            msgDiv.scrollTop = msgDiv.scrollHeight;
+        });
+
+        socket.on('system_message', (data) => {
+            const msgDiv = document.getElementById('messages');
+            msgDiv.innerHTML += `<div class="system">🐒 ${data.msg}</div>`;
+            msgDiv.scrollTop = msgDiv.scrollHeight;
+        });
+
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        socket.on('online_users', (data) => {
+            const container = document.getElementById('online-users-list');
+            const title = document.getElementById('user-sidebar-title');
+            title.innerText = `在線成員 (${data.users.length})`;
+            container.innerHTML = "";
+            data.users.forEach(user => {
+                const avatarUrl = "./static/micon.png";
+                container.innerHTML += `
+                    <div class="online-user">
+                        <div class="online-dot"></div>
+                        <img src="${avatarUrl}" alt="avatar" class="user-avatar">
+                        <span>${user}</span>
+                    </div>
+                `;
+            });
+        });
+
+        socket.on('server_renamed', (data) => {
+            if (serversData[data.server_id]) {
+                serversData[data.server_id].name = data.new_name;
+            }
+            const serverBtn = document.getElementById(`btn-${data.server_id}`);
+            if (serverBtn) {
+                serverBtn.innerText = data.new_name.substring(0, 4);
+            }
+            if (currentServerId === data.server_id) {
+                document.getElementById('current-server-name').innerText = data.new_name;
+            }
+        });
+
+        socket.on('channel_renamed', (data) => {
+            if (serversData[data.server_id]) {
+                const channels = serversData[data.server_id].channels;
+                const idx = channels.indexOf(data.old_channel);
+                if (idx !== -1) channels[idx] = data.new_channel;
+            }
+            if (currentServerId === data.server_id) {
+                if (currentChannelName === data.old_channel) {
+                    currentChannelName = data.new_channel;
+                    currentRoomId = `${currentServerId}:${data.new_channel}`;
+                }
+                switchServer(currentServerId); 
+            }
+        });
+
+        socket.on('channel_deleted', (data) => {
+            if (serversData[data.server_id]) {
+                serversData[data.server_id].channels = serversData[data.server_id].channels.filter(c => c !== data.channel);
+            }
+            if (currentServerId === data.server_id) {
+                if (currentChannelName === data.channel) {
+                    currentChannelName = "";
+                    currentRoomId = "";
+                    document.getElementById('message-input').disabled = true;
+                    document.getElementById('send-btn').disabled = true;
+                    document.getElementById('messages').innerHTML += `<div class="system">⚠️ 當前頻道已被刪除。</div>`;
+                }
+                switchServer(currentServerId);
+            }
+        });
+
+
+
+// 貪食蛇遊戲
+    
+        function toggleGame() {
+            if (!username || !currentChannelName) {
+                alert("輸入暱稱，並點擊進入一個頻道，才能開啟遊戲！");
+                return; // 直接中斷 不打開遊戲
+            }
+            const container = document.getElementById('game-container');
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                isGameMode = true; // 開啟遊戲模式
+                
+                // 送出指令喚醒伺服器，加上is_game_command標籤
+                socket.emit('send_chat', { 
+                    username: username, 
+                    message: 'start_game', 
+                    server: currentServerId, 
+                    channel: currentChannelName,
+                    is_game_command: true 
+                });
+            } else {
+                container.style.display = 'none';
+                isGameMode = false; // 關閉遊戲模式
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            socket.emit('send_chat', {
+                username: username,
+                message: message,
+                server: currentServerId,
+                channel: currentChannelName,
+                is_game_command: isGameMode // 把目前的模式狀態一起傳給後端
+            });
+            input.value = "";
+        }
+
+// 處理照片：前端 Canvas 自動壓縮與 Base64 轉換
+        function uploadPhoto(input) {
+            if (!currentChannelName) {
+                alert("請先進入頻道再傳送照片！");
+                return;
+            }
+            if (!input.files || !input.files[0]) return;
+
+            const file = input.files[0];
+            const reader = new FileReader();
+
+            // 當 FileReader 讀取完成後觸發
+            reader.onload = function(e) {
+                // 1. 建立一個虛擬的圖片物件
+                const img = new Image();
+                img.src = e.target.result;
+
+                // 當圖片載入完成後，開始進行 Canvas 壓縮
+                img.onload = function() {
+                    // 2. 設定壓縮後的最大限制 (例如最寬或最高不超過 800px)
+                    const MAX_WIDTH = 800;
+                    const MAX_HEIGHT = 800;
+                    let width = img.width;
+                    let height = img.height;
+
+                    // 3. 等比例縮放數學計算 (維持原本的照片比例)
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height = Math.round(height *= MAX_WIDTH / width);
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width = Math.round(width *= MAX_HEIGHT / height);
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    // 4. 在前端記憶體中建立一塊「虛擬畫布 (Canvas)」
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    // 5. 將大圖縮小，畫到這塊小畫布上
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // 6. 核心黑魔法：將畫布轉回 Base64 字串
+                    // 參數 'image/jpeg' 強制轉成 JPG，0.7 代表壓縮品質為 70% (肉眼看不出差異，但檔案會極小)
+                    const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+                    // 7. 將「瘦身成功」的輕量化圖片透過 Socket 發送出去！
+                    socket.emit('send_chat', {
+                        username: username,
+                        message: compressedBase64,
+                        server: currentServerId,
+                        channel: currentChannelName,
+                        is_game_command: false
+                    });
+                };
+            }
+            
+            // 啟動讀取檔案
+            reader.readAsDataURL(file); 
+            input.value = ""; // 清空，讓同一張照片可以重複選取
+        }
+
+
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const gridSize = 20; // 每個方塊 20px 
+
+        socket.on('game_update', (data) => {
+            // 每次收到更新就清空畫布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 蘋果
+            ctx.fillStyle = '#FFB2A6';
+            ctx.beginPath();
+            ctx.arc(data.apple[0] * gridSize + gridSize/2, data.apple[1] * gridSize + gridSize/2, gridSize/2, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // 貪食蛇身體
+            ctx.fillStyle = '#7EAA92';
+            data.snake.forEach((segment) => {
+                ctx.beginPath();
+                ctx.roundRect(segment[0] * gridSize, segment[1] * gridSize, gridSize, gridSize, 6);
+                ctx.fill();
+            });
+        });
+    </script>
+</body>
+</html>
